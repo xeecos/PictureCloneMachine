@@ -1,20 +1,36 @@
 package
 {
+	import com.powerflasher.as3potrace.POTrace;
+	import com.powerflasher.as3potrace.POTraceParams;
+	import com.powerflasher.as3potrace.backend.GraphicsDataBackend;
+	import com.powerflasher.as3potrace.backend.TraceBackend;
+	import com.powerflasher.as3potrace.geom.Curve;
+	import com.powerflasher.as3potrace.geom.CurveKind;
+	
 	import flash.desktop.NativeApplication;
 	import flash.display.Bitmap;
 	import flash.display.BitmapData;
+	import flash.display.CapsStyle;
+	import flash.display.GraphicsEndFill;
+	import flash.display.GraphicsSolidFill;
+	import flash.display.GraphicsStroke;
+	import flash.display.IGraphicsData;
+	import flash.display.JointStyle;
+	import flash.display.LineScaleMode;
 	import flash.display.Shape;
 	import flash.display.Sprite;
 	import flash.display.StageDisplayState;
 	import flash.events.Event;
 	import flash.events.MouseEvent;
 	import flash.filesystem.File;
+	import flash.filesystem.FileMode;
 	import flash.filesystem.FileStream;
 	import flash.filters.BitmapFilter;
 	import flash.filters.ColorMatrixFilter;
 	import flash.filters.ConvolutionFilter;
 	import flash.geom.Matrix;
 	import flash.geom.Point;
+	import flash.geom.Rectangle;
 	import flash.media.Camera;
 	import flash.media.Video;
 	import flash.net.SharedObject;
@@ -23,6 +39,7 @@ package
 	import flash.utils.setTimeout;
 	
 	import cc.makeblock.geom.ColorMatrix;
+	import cc.makeblock.geom.GCBezier;
 	import cc.makeblock.geom.Grid;
 	import cc.makeblock.utils.FileLoader;
 	import cc.makeblock.views.GCButton;
@@ -41,11 +58,13 @@ package
 		private var _fileLoader:FileLoader = new FileLoader();
 		public static var app:PictureCloneMachine;
 		public var shapes:Array = [];
+		private var _sortedLines:Array = [];
+		private var _lines:Array = [];
 		private var fileStream:FileStream = new FileStream();
 		private var fileGCode:File = File.desktopDirectory.resolvePath("app.gcode");
-		private var runningSpeed:uint = 4000;
-		private var workingSpeed:uint = 4000;
-		private var workingPower:uint = 127;
+		private var runningSpeed:uint = 300;
+		private var workingSpeed:uint = 300;
+		private var workingPower:uint = 100;
 		private var vid:Video = new Video(640,480);
 		private var bmpHEdge:uint = 100;
 		private var bmpVEdge:uint = 80;
@@ -173,6 +192,7 @@ package
 			}
 		}
 		private function onCloseHandle(evt:MouseEvent):void{
+			if(_serial)_serial.close();
 			NativeApplication.nativeApplication.exit();
 		}
 		private function onReceived(evt:Event):void{
@@ -200,6 +220,7 @@ package
 				}
 			}
 		}
+		private var _output:BitmapData;
 		private function onClickLoad(evt: MouseEvent): void {
 			if(_isDebug){
 				_fileLoader.browse();
@@ -218,6 +239,7 @@ package
 				var bmd:BitmapData = _bmp.bitmapData;
 				var colorFilter:ColorMatrixFilter=new ColorMatrixFilter(colorMatrix.GetFlatArray());
 				bmd.applyFilter(bmd, bmd.rect, new Point(), colorFilter);
+				_output = new BitmapData(bmd.width,bmd.height,false,0);
 				var tempArray:Array = [];
 				for ( var i:int = 0; i < bmd.width; i++)
 				{
@@ -385,12 +407,13 @@ package
 		private var interval:uint = 10;
 		private var pixelCount:uint = 400;
 		private var ridgePixels:Array = [];
+		private var _currentRect:Rectangle;
 		private function processing(bmd:BitmapData):void{
 			trace(pixelIndex/prePoints.length,(getTimer()-costTime)/1000);
 			var prePoint:Point;
 			var sortPoints:Array = [];
 			var len:uint = Math.min(pixelIndex+pixelCount,prePoints.length);
-			var dir:uint = 5;
+			var dir:uint = 4;
 			for(var i:uint = pixelIndex;i<len;i++){
 				prePoint = prePoints[i];
 				sortPoints = [];
@@ -413,7 +436,7 @@ package
 						sortPoints.push({index:j,dist:dist});
 //					}
 				}
-				var n:uint = 7;
+				var n:uint = 5;
 				if(sortPoints.length<n){
 					continue;
 				}
@@ -434,89 +457,123 @@ package
 				//if(b!=0&&a!=0){
 //					trace(a,Math.acos((a*a+b*b-c*c)/(2*a*b))*180/Math.PI);
 //				var angle:Number = Math.acos((a*a+b*b-c*c)/(2*a*b))*180/Math.PI;
-					if(rr<0.25){//(Math.abs(a-b)<1)&&(angle>90)){
-						//if(prePoint.x%2==0||prePoint.y%2==0){
-							bmd.setPixel(prePoint.x/4,prePoint.y/4,0xff0000);
+					if(rr<0.6){//(Math.abs(a-b)<1)&&(angle>90)){
+//						if(prePoint.x%2==0||prePoint.y%2==0){
+						bmd.setPixel(prePoint.x,prePoint.y,0xff0000);
+						_output.setPixel(prePoint.x/2,prePoint.y/2,0xffffff);
 							ridgePixels.push(prePoint);
-						//}
+//						}
 					}
 //				}
 			}
-			
 			if(pixelIndex>=prePoints.length){
-				bmd.fillRect(bmd.rect,0);
 				
-				var s:Shape;
-				for each(s in shapes){
-					s.graphics.clear();
-					_sprite.removeChild(s);
-				}
-				shapes = [];
-				_prints = [];
-				_prints.push("G28");
+
+				var po:POTrace = new POTrace(new POTraceParams(0x880000));
+				po.backend = new TraceBackend();
+				var result:Array = po.potrace_trace(_output);
 				
-				var w:Number = bmd.width;
-				var div:Number = 2.0;
-				var gcodeScale:Number = 2.4;
-				var xPos:Number = 0;
-				var yPos:Number = 0;
-				i = findNearestZeroPoint();;
-				len = ridgePixels.length;
-				while(len>0){
-					if(ridgePixels[i]==undefined){
-						i = findNearestZeroPoint();
-						//continue;
-					}
-					if(ridgePixels[i]==undefined){
-						removeTool();
-						continue;
-					}
-					var p:Point = new Point(ridgePixels[i].x,ridgePixels[i].y);
-					delete ridgePixels[i];
-					len--;
-//					trace(i);
-					i = findNearestPoint(p);
-					var np:Point = ridgePixels[i];
-					if(np){
-						if(Point.distance(p,np)<5){
-							s = new Shape();
-							with(s.graphics){
-								lineStyle(1,0x0000ff,1);
-								moveTo(p.x/div,p.y/div);
-								_prints.push("G01 X"+floorValue((w-p.x-xPos)/div/gcodeScale)+" Y"+floorValue((p.y-yPos)/div/gcodeScale)+" A"+runningSpeed);
-								addTool(workingPower);
-								lineTo(np.x/div,np.y/div);
-//								_prints.push("G01 X"+floorValue((w-np.x-xPos)/div/gcodeScale)+" Y"+floorValue((np.y-yPos)/div/gcodeScale)+" A"+workingSpeed);
-								
-							}
-							shapes.push(s);
-							_sprite.addChild(s);
-						}else{
-							removeTool();
-						}
-					}else{
-						removeTool();
-					}
-				}
-				removeTool();
-				_prints.push("G28");
-				trace("lines:",ridgePixels.length,shapes.length);
-				for (i = 0; i < bmd.width; i++)
-				{
-					for ( j = 0; j <bmd.height; j++)
-					{
-						if(gray(bmd.getPixel(i,j))>100){
-							bmd.setPixel(i,j, 0x006600 );
-						}
-						//bmd.setPixel(i,j,0);
-					}
-				}
-				_bmp.bitmapData = bmd;
+				_currentRect = _output.rect;
+				
+				_prints = (po.backend as TraceBackend).list;
+				trace(_prints.length);
+//				finishGCode();
+				//sortLines();
 			}else{
 				setTimeout(processing,interval,bmd);
 			}
-			
 			pixelIndex+=pixelCount;
+		}
+		private function sortLines():void{
+			_sortedLines = [];
+			_sortedLines.push(_lines[0].concat([]));
+			var nextPt:Point = _lines[0][0][0];
+			delete _lines[0];
+			findNextLine(nextPt);
+		}
+		private function findNextLine(pt:Point):void{
+			var dist:Number = 0;
+			var minDist:Number = 1000*1000;
+			var target:int = -1;
+			for(var i:uint in _lines){
+				if(_lines[i]!=null&&_lines[i]!=undefined){
+					try{
+						dist = Point.distance(pt,_lines[i][0][0]);
+						if(dist<minDist){
+							minDist = dist;
+							target = i;
+						}
+					}catch(e){}
+				}
+			}
+			if(target!=-1){
+				trace("processing:",100*_sortedLines.length/_lines.length);
+				_sortedLines.push(_lines[target].concat([]));
+				var nextPt:Point = new Point(_lines[target][0][0].x,_lines[target][0][0].y);
+				delete _lines[target];
+				setTimeout(findNextLine,0,nextPt);
+			}else{
+				_lines = _sortedLines;
+				trace("sort finish");
+				finishGCode();
+			}
+		}
+		
+		private function finishGCode():void{
+			var edgeWidth:uint = 10;
+			var w:uint = _currentRect.width;
+			var h:uint = _currentRect.height;
+			var s:Shape;
+			for each(s in shapes){
+				s.graphics.clear();
+				_sprite.removeChild(s);
+			}
+			shapes = [];
+			_prints = [];
+			_prints.push("G28");
+			
+			var div:Number = 2.0;
+			var gcodeScale:Number = 4;
+			var xPos:Number = 0;
+			var yPos:Number = 0;
+			var distanceScale:Number = 1/div/gcodeScale;
+			for(var i:uint=0;i<_lines.length;i++){
+				var tmp:Array = _lines[i];
+				for(var j:uint=0;j<tmp.length;j++){
+					var p0:Point = tmp[j][0];
+					var p1:Point = tmp[j][1];
+					if(p0.x<edgeWidth||p0.x>w-edgeWidth||p0.y<edgeWidth||p0.y>h-edgeWidth){
+						continue;
+					}
+					if(p1.x<edgeWidth||p1.x>w-edgeWidth||p1.y<edgeWidth||p1.y>h-edgeWidth){
+						continue;
+					}
+					_prints.push("G1 X"+(w-p0.x)*distanceScale+" Y"+p0.y*distanceScale+" F"+runningSpeed);
+					if(j==0){
+						addTool(workingPower);
+					}
+					//_prints.push("G01 X"+(w-p1.x)*distanceScale+" Y"+p1.y*distanceScale+" F"+workingSpeed);
+				}
+			}
+			removeTool();
+			_prints.push("G28");
+			trace("success:",_prints.length);
+		}
+		private function traceCurve(arr:Array):void{
+			var bc:GCBezier = new GCBezier();
+			for(var i:uint=0;i<arr.length;i++){
+				try{
+					var cur:Curve = arr[i];
+					if(cur.kind == CurveKind.BEZIER){
+						bc.start(cur.a,cur.cpa,cur.cpb,cur.b);
+						_lines.push(bc.lines());
+					}else{
+						//_lines.push([[cur.a,cur.b]]);
+					}
+				}catch(e){
+					traceCurve(arr[i]);
+				}
+			}
 		}
 		private function findNearestZeroPoint():uint{
 			var dist:Number = 5000;

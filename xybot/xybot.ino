@@ -73,7 +73,7 @@ void stepperMoveB(int dir)
 /************** calculate movements ******************/
 //#define STEPDELAY_MIN 200 // micro second
 //#define STEPDELAY_MAX 1000
-int stepAuxDelay=0;
+int stepAuxDelay=500;
 int stepdelay_min=1;
 int stepdelay_max=200;
 #define ACCELERATION 2 // mm/s^2 don't get inertia exceed motor could handle
@@ -117,7 +117,7 @@ void doMove()
         cntB-=1;
       }
     }
-    mDelay=constrain(stepdelay_min+speedDiff/32,stepdelay_min,stepdelay_max)+stepAuxDelay;
+    mDelay=stepAuxDelay;//constrain(stepdelay_min+speedDiff/32,stepdelay_min,stepdelay_max)+stepAuxDelay;
     delayMicroseconds(mDelay);
     if((maxD-i)<((stepdelay_max-stepdelay_min)/SPEED_STEP)){
       speedDiff=SPEED_STEP;
