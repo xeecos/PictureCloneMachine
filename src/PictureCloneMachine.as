@@ -2,7 +2,6 @@ package
 {
 	import com.powerflasher.as3potrace.POTrace;
 	import com.powerflasher.as3potrace.POTraceParams;
-	import com.powerflasher.as3potrace.backend.GraphicsDataBackend;
 	import com.powerflasher.as3potrace.backend.TraceBackend;
 	import com.powerflasher.as3potrace.geom.Curve;
 	import com.powerflasher.as3potrace.geom.CurveKind;
@@ -10,20 +9,12 @@ package
 	import flash.desktop.NativeApplication;
 	import flash.display.Bitmap;
 	import flash.display.BitmapData;
-	import flash.display.CapsStyle;
-	import flash.display.GraphicsEndFill;
-	import flash.display.GraphicsSolidFill;
-	import flash.display.GraphicsStroke;
-	import flash.display.IGraphicsData;
-	import flash.display.JointStyle;
-	import flash.display.LineScaleMode;
 	import flash.display.Shape;
 	import flash.display.Sprite;
 	import flash.display.StageDisplayState;
 	import flash.events.Event;
 	import flash.events.MouseEvent;
 	import flash.filesystem.File;
-	import flash.filesystem.FileMode;
 	import flash.filesystem.FileStream;
 	import flash.filters.BitmapFilter;
 	import flash.filters.ColorMatrixFilter;
@@ -40,7 +31,6 @@ package
 	
 	import cc.makeblock.geom.ColorMatrix;
 	import cc.makeblock.geom.GCBezier;
-	import cc.makeblock.geom.Grid;
 	import cc.makeblock.utils.FileLoader;
 	import cc.makeblock.views.GCButton;
 	import cc.makeblock.views.GCSwitch;
@@ -69,7 +59,7 @@ package
 		private var bmpHEdge:uint = 100;
 		private var bmpVEdge:uint = 80;
 		private var cam:Camera;
-		private var _sprite:Sprite = new Sprite;
+		private var _shape:Shape = new Shape;
 		private var _btClose:Sprite = new Sprite;
 		private var _combobox:ComboBox = new ComboBox();
 		private var _isDebug:Boolean = false;
@@ -92,6 +82,8 @@ package
 				
 				_bmp.alpha = 0.5;
 				_bmp.bitmapData = new BitmapData(640-bmpHEdge*2,480-bmpVEdge*2);
+			}else{
+				//_bmp.bitmapData = new BitmapData((640-bmpHEdge*2)*2,(480-bmpVEdge*2)*2);
 			}
 			addChild(_btLoad);
 			addChild(_btPrint);
@@ -100,7 +92,7 @@ package
 			_btStop.setWidth(60);
 			addChild(vid);
 			addChild(_bmp);
-			addChild(_sprite);
+			addChild(_shape);
 			addChild(_combobox);
 			addChild(_window);
 			addChild(_btClose);
@@ -213,11 +205,6 @@ package
 				_serial.writeString("M3 P0\n");
 				_serial.writeString("G28\n");
 				_serial.writeString("M3 P0\n");
-				var s:Shape;
-				for each(s in PictureCloneMachine.app.shapes){
-					s.graphics.clear();
-					_sprite.removeChild(s);
-				}
 			}
 		}
 		private var _output:BitmapData;
@@ -225,48 +212,63 @@ package
 			if(_isDebug){
 				_fileLoader.browse();
 			}else{
-				if(_serial.isConnected){
-					_serial.writeString("G28\n");
-					_serial.writeString("M3 P6\n");
-				}
 				var matrix:Matrix = new Matrix(1,0,0,1,0,0);
 				matrix.scale(-1,-1);
 				matrix.translate(640-bmpHEdge,480-bmpVEdge);
 				_bmp.bitmapData.draw(vid,matrix);
-				var colorMatrix:ColorMatrix = new ColorMatrix;
-				colorMatrix.SetBrightnessMatrix(200);
-				colorMatrix.SetContrastMatrix(255);
-				var bmd:BitmapData = _bmp.bitmapData;
-				var colorFilter:ColorMatrixFilter=new ColorMatrixFilter(colorMatrix.GetFlatArray());
-				bmd.applyFilter(bmd, bmd.rect, new Point(), colorFilter);
-				_output = new BitmapData(bmd.width,bmd.height,false,0);
-				var tempArray:Array = [];
-				for ( var i:int = 0; i < bmd.width; i++)
+				startProcessing();
+			}
+		}
+		
+		private function onBitmapLoaded(evt:Event):void{
+			var colorMatrix:ColorMatrix = new ColorMatrix;
+			colorMatrix.SetBrightnessMatrix(255);
+			colorMatrix.SetContrastMatrix(255);
+			var bmd:BitmapData = _fileLoader.bitmapData;
+			var colorFilter:ColorMatrixFilter=new ColorMatrixFilter(colorMatrix.GetFlatArray());
+			bmd.applyFilter(bmd, bmd.rect, new Point(), colorFilter);
+			_bmp.bitmapData = bmd;
+			startProcessing();
+		}
+		
+		private function startProcessing():void{
+			if(_serial.isConnected){
+				_serial.writeString("G28\n");
+				_serial.writeString("M3 P6\n");
+			}
+			var colorMatrix:ColorMatrix = new ColorMatrix;
+			colorMatrix.SetBrightnessMatrix(200);
+			colorMatrix.SetContrastMatrix(255);
+			var bmd:BitmapData = _bmp.bitmapData;
+			var colorFilter:ColorMatrixFilter=new ColorMatrixFilter(colorMatrix.GetFlatArray());
+			bmd.applyFilter(bmd, bmd.rect, new Point(), colorFilter);
+			_output = new BitmapData(bmd.width,bmd.height,false,0);
+			var tempArray:Array = [];
+			for ( var i:int = 0; i < bmd.width; i++)
+			{
+				for (var j:int = 0; j < bmd.height; j++)
 				{
-					for (var j:int = 0; j < bmd.height; j++)
-					{
-						if(gray(bmd.getPixel(i,j))>240){
-							
-							bmd.setPixel(i,j, 0xffffff );
-						}else{
-							bmd.setPixel(i,j,0);
-							tempArray.push(new Point(i,j));
-						}
+					if(gray(bmd.getPixel(i,j))>240){
+						
+						bmd.setPixel(i,j, 0xffffff );
+					}else{
+						bmd.setPixel(i,j,0);
+						tempArray.push(new Point(i,j));
 					}
 				}
-				findEdge(bmd);
-				var p:Point;
-				prePoints = [];
-				for each(p in tempArray ){
-					prePoints.push(p);
-					//bmd.setPixel(p.x,p.y, 0x0000ff );
-				}
-				costTime = getTimer();
-				ridgePixels = [];
-				pixelIndex = 0;
-				_bmp.bitmapData = bmd;
-				setTimeout(processing,interval,bmd);
 			}
+			findEdge(bmd);
+			var p:Point;
+			prePoints = [];
+			for each(p in tempArray ){
+				prePoints.push(p);
+				//bmd.setPixel(p.x,p.y, 0x0000ff );
+			}
+			costTime = getTimer();
+			ridgePixels = [];
+			pixelIndex = 0;
+			_bmp.bitmapData = bmd;
+			setTimeout(processing,interval,bmd);
 		}
 		private var _startTime:Number = 0;
 		private function onClickPrint(evt:MouseEvent):void{
@@ -321,8 +323,8 @@ package
 			this.graphics.drawRect(0,0,sw,sh);
 			this.graphics.endFill();
 			vid.x = sw/2-320;
-			_sprite.x = sw/2-100;
-			_sprite.y = sh/2+240;
+			_shape.x = sw/2-100;
+			_shape.y = sh/2+240;
 			_bmp.y = vid.y = sh/2-240;
 			_window.x = _bmp.x = vid.x + bmpHEdge;
 			_window.y = _bmp.y = vid.y + bmpVEdge;
@@ -349,59 +351,6 @@ package
 		}
 		private var prePoints:Array = [];
 		private var edgePoints:Array = [];
-		private function onBitmapLoaded(evt:Event):void{
-			
-			var colorMatrix:ColorMatrix = new ColorMatrix;
-			colorMatrix.SetBrightnessMatrix(255);
-			colorMatrix.SetContrastMatrix(255);
-			var bmd:BitmapData = _fileLoader.bitmapData;
-			var colorFilter:ColorMatrixFilter=new ColorMatrixFilter(colorMatrix.GetFlatArray());
-			bmd.applyFilter(bmd, bmd.rect, new Point(), colorFilter);
-			var tempArray:Array = [];
-			for ( var i:int = 0; i < bmd.width; i++)
-			{
-				for (var j:int = 0; j < bmd.height; j++)
-				{
-					if(gray(bmd.getPixel(i,j))>200){
-						
-						bmd.setPixel(i,j, 0xffffff );
-					}else{
-						bmd.setPixel(i,j,0);
-						tempArray.push(new Point(i,j));
-					}
-				}
-			}
-			findEdge(bmd);
-			var p:Point;
-			for ( i = 0; i < bmd.width; i++)
-			{
-				for ( j = 0; j < bmd.height; j++)
-				{
-					if(gray(bmd.getPixel(i,j))>100){
-						bmd.setPixel(i,j, 0xffffff);
-						for each(p in tempArray ){
-							if(p.x==i&&p.y==j){
-								delete tempArray[tempArray.indexOf(p)];
-								//break;
-							}
-						}
-					}else{
-						bmd.setPixel(i,j,0);
-					}
-				}
-			}
-			prePoints = [];
-			for each(p in tempArray ){
-				prePoints.push(p);
-				//bmd.setPixel(p.x,p.y, 0x0000ff );
-			}
-			costTime = getTimer();
-			ridgePixels = [];
-			pixelIndex = 0;
-			_bmp.bitmapData = bmd;
-			setTimeout(processing,interval,bmd);
-			
-		}
 		private var costTime:uint = 0;
 		private var pixelIndex:uint = 0;
 		private var interval:uint = 10;
@@ -436,7 +385,7 @@ package
 						sortPoints.push({index:j,dist:dist});
 //					}
 				}
-				var n:uint = 5;
+				var n:uint = 8;
 				if(sortPoints.length<n){
 					continue;
 				}
@@ -457,10 +406,10 @@ package
 				//if(b!=0&&a!=0){
 //					trace(a,Math.acos((a*a+b*b-c*c)/(2*a*b))*180/Math.PI);
 //				var angle:Number = Math.acos((a*a+b*b-c*c)/(2*a*b))*180/Math.PI;
-					if(rr<0.6){//(Math.abs(a-b)<1)&&(angle>90)){
+					if(rr<2.6){//(Math.abs(a-b)<1)&&(angle>90)){
 //						if(prePoint.x%2==0||prePoint.y%2==0){
-						bmd.setPixel(prePoint.x,prePoint.y,0xff0000);
-						_output.setPixel(prePoint.x/2,prePoint.y/2,0xffffff);
+							bmd.setPixel(prePoint.x,prePoint.y,0xff0000);
+							_output.setPixel(prePoint.x,prePoint.y,0xffffff);
 							ridgePixels.push(prePoint);
 //						}
 					}
@@ -471,93 +420,20 @@ package
 
 				var po:POTrace = new POTrace(new POTraceParams(0x880000));
 				po.backend = new TraceBackend();
+				_shape.graphics.clear();
+				(po.backend as TraceBackend).shape = _shape;
 				var result:Array = po.potrace_trace(_output);
 				
 				_currentRect = _output.rect;
 				
 				_prints = (po.backend as TraceBackend).list;
-				trace(_prints.length);
+				trace("result count:",_prints.length);
 //				finishGCode();
 				//sortLines();
 			}else{
 				setTimeout(processing,interval,bmd);
 			}
 			pixelIndex+=pixelCount;
-		}
-		private function sortLines():void{
-			_sortedLines = [];
-			_sortedLines.push(_lines[0].concat([]));
-			var nextPt:Point = _lines[0][0][0];
-			delete _lines[0];
-			findNextLine(nextPt);
-		}
-		private function findNextLine(pt:Point):void{
-			var dist:Number = 0;
-			var minDist:Number = 1000*1000;
-			var target:int = -1;
-			for(var i:uint in _lines){
-				if(_lines[i]!=null&&_lines[i]!=undefined){
-					try{
-						dist = Point.distance(pt,_lines[i][0][0]);
-						if(dist<minDist){
-							minDist = dist;
-							target = i;
-						}
-					}catch(e){}
-				}
-			}
-			if(target!=-1){
-				trace("processing:",100*_sortedLines.length/_lines.length);
-				_sortedLines.push(_lines[target].concat([]));
-				var nextPt:Point = new Point(_lines[target][0][0].x,_lines[target][0][0].y);
-				delete _lines[target];
-				setTimeout(findNextLine,0,nextPt);
-			}else{
-				_lines = _sortedLines;
-				trace("sort finish");
-				finishGCode();
-			}
-		}
-		
-		private function finishGCode():void{
-			var edgeWidth:uint = 10;
-			var w:uint = _currentRect.width;
-			var h:uint = _currentRect.height;
-			var s:Shape;
-			for each(s in shapes){
-				s.graphics.clear();
-				_sprite.removeChild(s);
-			}
-			shapes = [];
-			_prints = [];
-			_prints.push("G28");
-			
-			var div:Number = 2.0;
-			var gcodeScale:Number = 4;
-			var xPos:Number = 0;
-			var yPos:Number = 0;
-			var distanceScale:Number = 1/div/gcodeScale;
-			for(var i:uint=0;i<_lines.length;i++){
-				var tmp:Array = _lines[i];
-				for(var j:uint=0;j<tmp.length;j++){
-					var p0:Point = tmp[j][0];
-					var p1:Point = tmp[j][1];
-					if(p0.x<edgeWidth||p0.x>w-edgeWidth||p0.y<edgeWidth||p0.y>h-edgeWidth){
-						continue;
-					}
-					if(p1.x<edgeWidth||p1.x>w-edgeWidth||p1.y<edgeWidth||p1.y>h-edgeWidth){
-						continue;
-					}
-					_prints.push("G1 X"+(w-p0.x)*distanceScale+" Y"+p0.y*distanceScale+" F"+runningSpeed);
-					if(j==0){
-						addTool(workingPower);
-					}
-					//_prints.push("G01 X"+(w-p1.x)*distanceScale+" Y"+p1.y*distanceScale+" F"+workingSpeed);
-				}
-			}
-			removeTool();
-			_prints.push("G28");
-			trace("success:",_prints.length);
 		}
 		private function traceCurve(arr:Array):void{
 			var bc:GCBezier = new GCBezier();
@@ -619,19 +495,6 @@ package
 		}
 		private var points:Array = [];
 		private var _prints:Array = [];
-		private function addTool(power:uint):void{
-			_prints.push("M3 P"+power);
-			_prints.push("M3 P"+power);
-//			fileStream.writeUTFBytes("M3 P"+power+"\n");
-//			fileStream.writeUTFBytes("M3 P"+power+"\n");
-		}
-		private function removeTool():void{
-			_prints.push("M3 P0");
-			_prints.push("M3 P0");
-//			fileStream.writeUTFBytes("M3 P0\n");
-//			fileStream.writeUTFBytes("M3 P0\n");
-		}
-		
 		private function floorValue(v:Number):String{
 			var s:String = "";
 			s+=Math.ceil(v*100)/100

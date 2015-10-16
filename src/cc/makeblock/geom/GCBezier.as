@@ -19,7 +19,7 @@ package cc.makeblock.geom
 		private var t:Number = 0;
 		private var _points:Array = [];
 		private var _lines:Array = [];
-		private var _step:Number = 0.499;
+		private var _step:Number = 0.4;
 		public function GCBezier():void
 		{
 		}
