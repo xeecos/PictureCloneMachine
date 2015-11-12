@@ -13,12 +13,12 @@ package com.powerflasher.as3potrace.backend
 	{
 		public var list:Array = [];
 		public var shape:Shape = new Shape;
-		private var gcodeScale:Number = 1/1.3;
+		private var gcodeScale:Number = 1/5;
 		private var workingSpeed:Number = 6000;
 		private var w:uint = 320;
 		
-		private var xPos:Number = 180;
-		private var yPos:Number = 0;
+		private var xPos:Number = 45;
+		private var yPos:Number = 5;
 		public function init(width:int, height:int):void
 		{
 			list = [];
