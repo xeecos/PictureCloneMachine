@@ -75,7 +75,7 @@ package
 			stage.scaleMode = "noScale";
 			if(!_isDebug){
 				setTimeout(function():void{
-					stage.displayState = StageDisplayState.FULL_SCREEN;
+					//stage.displayState = StageDisplayState.FULL_SCREEN;
 				},1000);
 				vid.scaleY = -1;
 				vid.scaleX = -1;
@@ -313,7 +313,7 @@ package
 		private function onResized(evt:Event):void{
 			if(!_isDebug&&stage.displayState==StageDisplayState.NORMAL){
 				setTimeout(function():void{
-					stage.displayState = StageDisplayState.FULL_SCREEN;
+					//stage.displayState = StageDisplayState.FULL_SCREEN;
 				},4000);
 			}
 			var sh:uint = stage.stageHeight;

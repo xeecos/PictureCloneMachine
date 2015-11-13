@@ -13,7 +13,7 @@ package com.powerflasher.as3potrace.backend
 	{
 		public var list:Array = [];
 		public var shape:Shape = new Shape;
-		private var gcodeScale:Number = 1/5;
+		private var gcodeScale:Number = 1.2/5;
 		private var workingSpeed:Number = 6000;
 		private var w:uint = 320;
 		
